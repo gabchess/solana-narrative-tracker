@@ -1,0 +1,26 @@
+{
+  "name": "solana-narrative-tracker",
+  "version": "1.0.0",
+  "description": "AI-powered detection of emerging narratives and early signals in the Solana ecosystem",
+  "type": "module",
+  "scripts": {
+    "scan": "node scan.mjs",
+    "scan:social": "node scanners/social.mjs",
+    "scan:github": "node scanners/github.mjs",
+    "scan:onchain": "node scanners/onchain.mjs",
+    "scan:narratives": "node scan.mjs --narratives-only",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "setup-db": "node setup-db.mjs"
+  },
+  "keywords": ["solana", "narratives", "signals", "ai", "defi"],
+  "author": "gabe_onchain & AriaLinkwell",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.95.3",
+    "next": "^16.1.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  }
+}
