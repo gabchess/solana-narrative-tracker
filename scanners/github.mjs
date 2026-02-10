@@ -2,7 +2,7 @@
 // GitHub Signal Scanner — tracks Solana ecosystem repo activity
 // Uses GitHub Search API (no auth needed for basic searches)
 
-import { supabasePost } from '../lib/config.mjs';
+import { supabasePost, assertSupabaseConfig } from '../lib/config.mjs';
 
 const GITHUB_API = 'https://api.github.com';
 
@@ -53,14 +53,6 @@ async function getRepoInfo(fullName) {
   return githubFetch(`/repos/${fullName}`);
 }
 
-async function getRecentCommits(fullName, since) {
-  const data = await githubFetch(`/repos/${fullName}/commits?since=${since}&per_page=1`);
-  // GitHub returns commits array; just need count
-  if (!data) return 0;
-  // For count, we'd need pagination. Rough estimate from first page
-  return Array.isArray(data) ? data.length : 0;
-}
-
 async function searchTrendingSolanaRepos() {
   const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const query = encodeURIComponent(`solana created:>${twoWeeksAgo} stars:>5`);
@@ -77,10 +69,10 @@ async function searchActiveRepos() {
 
 export async function runGithubScan() {
   console.log('🐙 Starting GitHub Signal Scanner...\n');
+  assertSupabaseConfig();
   
   let totalSignals = 0;
   const allSignals = [];
-  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
   
   // 1. Scan tracked repos
   console.log('Scanning tracked repos...');
@@ -127,8 +119,8 @@ export async function runGithubScan() {
       signal_type: 'new_repo',
     };
     allSignals.push(signal);
-    await supabasePost('github_signals', signal);
-    totalSignals++;
+    const result = await supabasePost('github_signals', signal);
+    if (result) totalSignals++;
   }
   
   // 3. Find most active Solana repos
@@ -151,8 +143,8 @@ export async function runGithubScan() {
       signal_type: 'activity_spike',
     };
     allSignals.push(signal);
-    await supabasePost('github_signals', signal);
-    totalSignals++;
+    const result = await supabasePost('github_signals', signal);
+    if (result) totalSignals++;
   }
   
   console.log(`\n🐙 GitHub scan complete: ${totalSignals} signals stored`);

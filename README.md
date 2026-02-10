@@ -42,9 +42,15 @@ The Solana Narrative Tracker monitors three categories of ecosystem signals, clu
 After signal collection, an AI model (Claude Sonnet / Gemini Flash) analyzes all signals and:
 
 1. **Groups** related signals into 4-7 coherent narratives
-2. **Scores** each narrative by confidence (0-1) based on signal volume and diversity
-3. **Classifies** status: emerging, accelerating, or established
+2. **Scores** each narrative by confidence (0-1), clamped to `[0,1]` before storage
+3. **Classifies** status: detected, accelerating, peaked, or fading
 4. **Generates** 3-5 concrete build ideas per narrative with difficulty ratings
+
+### Confidence Interpretation
+
+- `0.00 - 0.39`: weak narrative signal, often sparse or single-source
+- `0.40 - 0.69`: moderate narrative signal, cross-source hints present
+- `0.70 - 1.00`: strong narrative signal, repeated evidence across social/GitHub/onchain
 
 ### Architecture
 
@@ -76,7 +82,32 @@ After signal collection, an AI model (Claude Sonnet / Gemini Flash) analyzes all
 
 ## Detected Narratives
 
-*Narratives are generated fortnightly. See the [live dashboard](https://solana-narrative-tracker.vercel.app) for the latest report.*
+Narratives are generated fortnightly. The dashboard loads the latest report and narratives from Supabase at runtime.
+
+Example output format:
+
+```json
+{
+  "narrative_name": "Solana Restaking and LST Competition",
+  "confidence": 0.82,
+  "status": "accelerating",
+  "category": "defi",
+  "signal_count": 18,
+  "supporting_signals": [
+    "Jito and Sanctum engagement spike",
+    "TVL moved into staking-related protocols"
+  ],
+  "build_ideas": [
+    {
+      "title": "LST Yield Rotation Router",
+      "difficulty": "medium",
+      "narrative_fit": "Captures user demand for active stake management."
+    }
+  ]
+}
+```
+
+See the latest live report: [solana-narrative-tracker.vercel.app](https://solana-narrative-tracker.vercel.app).
 
 ## Build Ideas
 
@@ -108,12 +139,27 @@ Set environment variables:
 export ANTHROPIC_API_KEY=sk-ant-...    # For narrative engine
 # OR
 export OPENROUTER_API_KEY=sk-or-...    # Alternative
+
+# Supabase (required for scanners + dashboard)
+export SUPABASE_URL=https://<project-ref>.supabase.co
+export SUPABASE_SERVICE_KEY=eyJ...      # service role key (server-side scanner only)
+export SUPABASE_ANON_KEY=eyJ...         # publishable/anon key (dashboard reads)
+
+# Bird auth for social scanner
+export AUTH_TOKEN=...
+export CT0=...
+
+# Next.js public envs for client dashboard
+export NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL
+export NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
 ```
 
-Supabase credentials are in `lib/config.mjs`. Deploy the schema:
+Deploy the schema:
 ```bash
 # Run supabase/schema.sql against your Supabase project
 ```
+
+If you use local development env files, create `.env.local` with the same keys.
 
 ### Run
 
@@ -144,6 +190,44 @@ Deploy to Vercel:
 ```bash
 vercel --prod
 ```
+
+## Quick Demo (For Judges)
+
+1. Run ingestion + narrative generation:
+```bash
+npm run scan
+```
+2. Confirm rows exist in Supabase tables: `social_signals`, `github_signals`, `onchain_signals`, `narratives`, `reports`.
+3. Start dashboard:
+```bash
+npm run dev
+```
+4. Open `http://localhost:3000` and verify:
+   - latest report period is shown
+   - narrative cards show confidence scores
+   - build ideas expand on click
+   - refresh button re-fetches live Supabase data
+
+## Evaluation Method
+
+- **Coverage metric:** number of signals gathered per source each period.
+- **Narrative strength metric:** confidence score with source diversity and signal density.
+- **Actionability metric:** each narrative must include 3-5 concrete build ideas.
+- **Human spot-check:** top narratives reviewed for coherence and usefulness.
+
+## Current Limitations
+
+- Social scanner depends on Bird CLI session/auth (`AUTH_TOKEN`, `CT0`).
+- Free/public APIs can rate-limit and delay runs.
+- LLM narrative quality varies by model/provider and prompt adherence.
+- Signal taxonomy is keyword-driven and may miss novel phrasing.
+- Dashboard currently prioritizes latest data read over historical drill-down UX.
+
+## Live Data Strategy
+
+- Current deployment uses static export for hosting simplicity.
+- The page still fetches live Supabase data on load and supports manual refresh + retry.
+- If SEO or first-load hydration becomes a priority, remove `output: 'export'` and switch to server-rendered data fetch in Next.js.
 
 ## Tech Stack
 

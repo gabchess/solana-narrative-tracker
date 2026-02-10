@@ -3,7 +3,7 @@
 // Uses Bird CLI for tweet fetching
 
 import { execSync } from 'child_process';
-import { TRACKED_HANDLES, SOLANA_KEYWORDS, categorize, getMatchedKeywords, supabasePost } from '../lib/config.mjs';
+import { TRACKED_HANDLES, SOLANA_KEYWORDS, categorize, getMatchedKeywords, supabasePost, assertSupabaseConfig } from '../lib/config.mjs';
 
 function parseBirdOutput(output) {
   const tweets = [];
@@ -76,7 +76,9 @@ function parseBirdOutput(output) {
 
 async function scanHandle(handle) {
   try {
-    const cmd = `powershell -Command "$env:AUTH_TOKEN = [System.Environment]::GetEnvironmentVariable('AUTH_TOKEN','User'); $env:CT0 = [System.Environment]::GetEnvironmentVariable('CT0','User'); bird search 'from:${handle}' --count 10 2>&1"`;
+    const cmd = process.platform === 'win32'
+      ? `powershell -Command "$env:AUTH_TOKEN = [System.Environment]::GetEnvironmentVariable('AUTH_TOKEN','User'); $env:CT0 = [System.Environment]::GetEnvironmentVariable('CT0','User'); bird search 'from:${handle}' --count 10 2>&1"`
+      : `bird search "from:${handle}" --count 10 2>&1`;
     const output = execSync(cmd, { encoding: 'utf8', timeout: 45000 });
     return parseBirdOutput(output);
   } catch (e) {
@@ -88,6 +90,10 @@ async function scanHandle(handle) {
 export async function runSocialScan() {
   console.log('🐦 Starting Social Signal Scanner...');
   console.log(`Tracking ${TRACKED_HANDLES.length} handles\n`);
+  assertSupabaseConfig();
+  if (!process.env.AUTH_TOKEN || !process.env.CT0) {
+    console.warn('AUTH_TOKEN/CT0 are not set in this shell. Bird may fail if not already authenticated.');
+  }
   
   let totalSignals = 0;
   const allSignals = [];

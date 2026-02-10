@@ -2,7 +2,7 @@
 // Onchain Signal Scanner — tracks Solana ecosystem onchain metrics
 // Sources: DeFi Llama (free, no auth), Solana public RPC
 
-import { supabasePost } from '../lib/config.mjs';
+import { supabasePost, assertSupabaseConfig, fetchWithRetry } from '../lib/config.mjs';
 
 const DEFILLAMA_API = 'https://api.llama.fi';
 const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
@@ -19,7 +19,7 @@ const SOLANA_PROTOCOLS = [
 
 async function fetchJSON(url) {
   try {
-    const res = await fetch(url);
+    const res = await fetchWithRetry(url, {}, 2);
     if (!res.ok) return null;
     return res.json();
   } catch (e) {
@@ -31,12 +31,12 @@ async function fetchJSON(url) {
 async function getSolanaTVL() {
   // Overall Solana chain TVL
   const data = await fetchJSON(`${DEFILLAMA_API}/v2/historicalChainTvl/Solana`);
-  if (!data || !Array.isArray(data)) return null;
+  if (!data || !Array.isArray(data) || data.length === 0) return null;
   
   const latest = data[data.length - 1];
-  const twoWeeksAgo = data[data.length - 15] || data[data.length - 2];
+  const twoWeeksAgo = data.length >= 15 ? data[data.length - 15] : (data[0] || latest);
   
-  if (latest && twoWeeksAgo) {
+  if (latest && twoWeeksAgo && twoWeeksAgo.tvl > 0) {
     const delta = ((latest.tvl - twoWeeksAgo.tvl) / twoWeeksAgo.tvl * 100);
     return {
       current: latest.tvl,
@@ -91,6 +91,7 @@ async function getSolanaStats() {
 
 export async function runOnchainScan() {
   console.log('⛓️  Starting Onchain Signal Scanner...\n');
+  assertSupabaseConfig();
   
   let totalSignals = 0;
   const allSignals = [];
@@ -109,8 +110,8 @@ export async function runOnchainScan() {
       metadata: { current: solanaTvl.current, previous: solanaTvl.previous, deltaPercent: solanaTvl.deltaPercent },
     };
     allSignals.push(signal);
-    await supabasePost('onchain_signals', signal);
-    totalSignals++;
+    const result = await supabasePost('onchain_signals', signal);
+    if (result) totalSignals++;
     console.log(`  Solana TVL: $${(solanaTvl.current/1e9).toFixed(2)}B (${solanaTvl.deltaPercent > 0 ? '+' : ''}${solanaTvl.deltaPercent.toFixed(1)}% 14d)`);
   }
   
@@ -133,8 +134,8 @@ export async function runOnchainScan() {
     };
     
     allSignals.push(signal);
-    await supabasePost('onchain_signals', signal);
-    totalSignals++;
+    const result = await supabasePost('onchain_signals', signal);
+    if (result) totalSignals++;
     protocolData.push(proto);
     
     // Be nice to the API
@@ -172,8 +173,8 @@ export async function runOnchainScan() {
         metadata: { slug: p.slug, category: p.category, change_1d: p.change_1d, change_7d: p.change_7d },
       };
       allSignals.push(signal);
-      await supabasePost('onchain_signals', signal);
-      totalSignals++;
+      const result = await supabasePost('onchain_signals', signal);
+      if (result) totalSignals++;
     }
   }
   

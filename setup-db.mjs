@@ -32,7 +32,7 @@ async function setup() {
   if (pgMetaRes.status === 404 || pgMetaRes.status === 400) {
     console.log('\nCannot create functions via REST API.');
     console.log('Please run the following SQL in your Supabase SQL editor:');
-    console.log('URL: https://supabase.com/dashboard/project/qmgxvmzydxxlfuxmfswy/sql/new\n');
+    console.log(`URL: https://supabase.com/dashboard/project/<your-project-ref>/sql/new\n`);
     console.log('--- COPY BELOW ---\n');
     console.log(sql);
     console.log('\n--- END ---\n');

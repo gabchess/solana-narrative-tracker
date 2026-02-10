@@ -1,13 +1,18 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
-const SUPABASE_URL = 'https://btkkaayncmmkouhsaxcr.supabase.co';
-const SUPABASE_ANON = 'sb_publishable_o7PXOcKQ4PdOtFL5wAhVqw_bdrD3hWy'; // anon key is safe to expose
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://btkkaayncmmkouhsaxcr.supabase.co';
+const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON || 'sb_publishable_o7PXOcKQ4PdOtFL5wAhVqw_bdrD3hWy';
 
 async function fetchSupabase(path) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}` },
+    cache: 'no-store',
   });
+  if (!res.ok) {
+    const payload = await res.text();
+    throw new Error(`Supabase request failed (${res.status}): ${payload.substring(0, 180)}`);
+  }
   return res.json();
 }
 
@@ -24,6 +29,7 @@ const categoryColors = {
 const statusIcons = {
   detected: '🔍',
   accelerating: '🚀',
+  established: '📈',
   peaked: '📈',
   fading: '📉',
 };
@@ -53,6 +59,7 @@ function StatCard({ label, value, sub }) {
 function NarrativeCard({ narrative }) {
   const [expanded, setExpanded] = useState(false);
   const cat = categoryColors[narrative.category] || categoryColors.other;
+  const toggle = () => setExpanded(!expanded);
   
   return (
     <div style={{
@@ -63,7 +70,7 @@ function NarrativeCard({ narrative }) {
       marginBottom: 20,
       transition: 'all 0.2s',
       cursor: 'pointer',
-    }} onClick={() => setExpanded(!expanded)}>
+    }} onClick={toggle} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()} role="button" tabIndex={0} aria-expanded={expanded} aria-label={`Toggle build ideas for ${narrative.narrative_name}`}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
@@ -147,35 +154,55 @@ export default function Home() {
   const [report, setReport] = useState(null);
   const [narratives, setNarratives] = useState([]);
   const [stats, setStats] = useState({ social: 0, github: 0, onchain: 0 });
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('confidence');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [reps, narrs, socialCount, githubCount, onchainCount] = await Promise.all([
-          fetchSupabase('reports?order=created_at.desc&limit=1'),
-          fetchSupabase('narratives?order=confidence.desc&limit=20'),
-          fetchSupabase('social_signals?select=id&limit=1000'),
-          fetchSupabase('github_signals?select=id&limit=1000'),
-          fetchSupabase('onchain_signals?select=id&limit=1000'),
-        ]);
-        
-        if (reps?.length) setReport(reps[0]);
-        if (narrs?.length) setNarratives(narrs);
-        setStats({
-          social: socialCount?.length || 0,
-          github: githubCount?.length || 0,
-          onchain: onchainCount?.length || 0,
-        });
-      } catch (e) {
-        console.error('Load error:', e);
-      }
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const [reps, narrs, socialCount, githubCount, onchainCount] = await Promise.all([
+        fetchSupabase('reports?order=created_at.desc&limit=1'),
+        fetchSupabase('narratives?order=confidence.desc&limit=20'),
+        fetchSupabase('social_signals?select=id&limit=1000'),
+        fetchSupabase('github_signals?select=id&limit=1000'),
+        fetchSupabase('onchain_signals?select=id&limit=1000'),
+      ]);
+      
+      setReport(reps?.[0] || null);
+      setNarratives(Array.isArray(narrs) ? narrs : []);
+      setStats({
+        social: socialCount?.length || 0,
+        github: githubCount?.length || 0,
+        onchain: onchainCount?.length || 0,
+      });
+    } catch (e) {
+      console.error('Load error:', e);
+      setError(e.message || 'Unable to load dashboard data.');
+    } finally {
       setLoading(false);
     }
-    load();
   }, []);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
   const totalSignals = stats.social + stats.github + stats.onchain;
+  const filteredNarratives = useMemo(
+    () => (categoryFilter === 'all' ? narratives : narratives.filter(n => n.category === categoryFilter)),
+    [categoryFilter, narratives],
+  );
+  const visibleNarratives = useMemo(() => {
+    const list = [...filteredNarratives];
+    list.sort((a, b) => {
+      if (sortBy === 'signals') return (b.signal_count || 0) - (a.signal_count || 0);
+      return (b.confidence || 0) - (a.confidence || 0);
+    });
+    return list;
+  }, [filteredNarratives, sortBy]);
 
   return (
     <div style={{
@@ -200,6 +227,23 @@ export default function Home() {
           <p style={{ color: '#9CA3AF', fontSize: 15, margin: 0, maxWidth: 600 }}>
             AI-powered detection of emerging narratives and early signals in the Solana ecosystem. Refreshed fortnightly.
           </p>
+          <div style={{ marginTop: 16 }}>
+            <button
+              onClick={load}
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                color: '#E5E7EB',
+                borderRadius: 8,
+                padding: '8px 14px',
+                cursor: 'pointer',
+                fontSize: 13,
+                fontWeight: 500,
+              }}
+            >
+              Refresh live data
+            </button>
+          </div>
           
           {/* Stats */}
           <div style={{ display: 'flex', gap: 16, marginTop: 24, flexWrap: 'wrap' }}>
@@ -212,7 +256,26 @@ export default function Home() {
       
       {/* Content */}
       <div style={{ maxWidth: 1000, margin: '0 auto', padding: '32px 24px' }}>
-        {loading ? (
+        {error ? (
+          <div style={{ textAlign: 'center', padding: 60, color: '#FCA5A5' }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+            <div style={{ marginBottom: 12 }}>Failed to load live data from Supabase.</div>
+            <button
+              onClick={load}
+              style={{
+                background: 'rgba(252,165,165,0.1)',
+                border: '1px solid rgba(252,165,165,0.4)',
+                color: '#FCA5A5',
+                borderRadius: 8,
+                padding: '8px 14px',
+                cursor: 'pointer',
+                fontSize: 13,
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: '#6B7280' }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
             Loading signals...
@@ -224,10 +287,21 @@ export default function Home() {
           </div>
         ) : (
           <>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={{ background: 'rgba(255,255,255,0.04)', color: '#D1D5DB', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '8px 10px' }}>
+                <option value="all">All categories</option>
+                {Object.keys(categoryColors).filter(c => c !== 'other').map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="other">other</option>
+              </select>
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ background: 'rgba(255,255,255,0.04)', color: '#D1D5DB', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '8px 10px' }}>
+                <option value="confidence">Sort: Confidence</option>
+                <option value="signals">Sort: Signal Count</option>
+              </select>
+            </div>
             <h2 style={{ fontSize: 18, fontWeight: 600, color: '#D1D5DB', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span>📌</span> Detected Narratives
+              <span>📌</span> Detected Narratives ({visibleNarratives.length})
             </h2>
-            {narratives.map((n, i) => (
+            {visibleNarratives.map((n, i) => (
               <NarrativeCard key={n.id || i} narrative={n} />
             ))}
           </>

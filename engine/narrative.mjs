@@ -2,7 +2,7 @@
 // Narrative Engine — AI-powered clustering of signals into narratives + build ideas
 // Uses OpenRouter API for inference
 
-import { supabaseGet, supabasePost, SUPABASE_URL, SUPABASE_KEY } from '../lib/config.mjs';
+import { supabaseGet, supabasePost, assertSupabaseConfig } from '../lib/config.mjs';
 
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
@@ -68,14 +68,28 @@ function getPeriod() {
 
 async function fetchRecentSignals() {
   const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+  const since = encodeURIComponent(fourteenDaysAgo);
   
   const [social, github, onchain] = await Promise.all([
-    supabaseGet(`social_signals?created_at=gte.${fourteenDaysAgo}&order=signal_strength.desc&limit=100`),
-    supabaseGet(`github_signals?created_at=gte.${fourteenDaysAgo}&order=stars.desc&limit=50`),
-    supabaseGet(`onchain_signals?created_at=gte.${fourteenDaysAgo}&order=created_at.desc&limit=50`),
+    supabaseGet(`social_signals?created_at=gte.${since}&order=signal_strength.desc&limit=100`),
+    supabaseGet(`github_signals?created_at=gte.${since}&order=stars.desc&limit=50`),
+    supabaseGet(`onchain_signals?created_at=gte.${since}&order=created_at.desc&limit=50`),
   ]);
   
   return { social, github, onchain };
+}
+
+function normalizeConfidence(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function normalizeStatus(value) {
+  const status = String(value || '').toLowerCase();
+  if (status === 'accelerating') return 'accelerating';
+  if (status === 'peaked' || status === 'fading') return status;
+  return 'detected';
 }
 
 function buildSignalSummary(signals) {
@@ -113,6 +127,7 @@ function buildSignalSummary(signals) {
 
 export async function generateNarratives() {
   console.log('🧠 Starting Narrative Engine...\n');
+  assertSupabaseConfig();
   
   const period = getPeriod();
   const signals = await fetchRecentSignals();
@@ -139,7 +154,7 @@ For each narrative, provide:
 2. A slug (kebab-case)
 3. A 2-4 sentence description explaining what's happening and why it matters
 4. Confidence score (0-1)
-5. Status: "emerging", "accelerating", or "established"
+5. Status: "detected", "accelerating", "peaked", or "fading"
 6. Category: "defi", "infra", "consumer", "depin", "gaming", "ai", or "other"
 7. 3-5 concrete build ideas that founders could execute on this narrative. Each build idea needs: title, description (2-3 sentences), difficulty (easy/medium/hard), and how it fits the narrative.
 
@@ -195,12 +210,12 @@ Output as JSON array:
       narrative_name: n.name,
       narrative_slug: n.slug,
       description: n.description,
-      confidence: n.confidence,
+      confidence: normalizeConfidence(n.confidence),
       signal_count: n.signal_count || 0,
       category: n.category,
       supporting_signals: n.supporting_signals || [],
       build_ideas: n.build_ideas || [],
-      status: n.status === 'emerging' ? 'detected' : n.status === 'accelerating' ? 'accelerating' : 'detected',
+      status: normalizeStatus(n.status),
     });
   }
   
